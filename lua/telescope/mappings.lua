@@ -1,4 +1,124 @@
--- TODO: Customize keymap
+---@tag telescope.mappings
+
+---@brief [[
+--- |telescope.mappings| is used to configure the keybindings within
+--- a telescope picker. These keybinds are only local to the picker window
+--- and will be cleared once you exit the picker.
+---
+--- We provie multiple different ways of configuring, as described below,
+--- to provide an easy to use experience for changing the defualt behavior
+--- of telescope or extending for your own purposes.
+---
+--- To see many of the builtin actions that you can use as values for this
+--- table, see |telescope.actions|
+---
+--- Format is:
+--- <code>
+---   {
+---     mode = { ..keys }
+---   }
+--- </code>
+---
+---  where {mode} is the one character letter for a mode ('i' for insert, 'n' for normal).
+---
+---  For example:
+--- <code>
+---   mappings = {
+---     i = {
+---       ["<esc>"] = require('telescope.actions').close,
+---     },
+---   }
+--- </code>
+---
+--- To disable a keymap, put `[map] = false`<br>
+--- For example:
+--- <code>
+---   {
+---     ...,
+---     ["<C-n>"] = false,
+---     ...,
+---   }
+--- </code>
+---    Into your config.
+---
+--- To override behavior of a key, simply set the value
+--- to be a function (either by requiring an action or by writing
+--- your own function)
+--- <code>
+---   {
+---     ...,
+---     ["<C-i>"] = require('telescope.actions').select_default,
+---     ...,
+---   }
+--- </code>
+---
+---  If the function you want is part of `telescope.actions`, then you can
+---  simply give a string.
+---    For example, the previous option is equivalent to:
+--- <code>
+---   {
+---     ...,
+---     ["<C-i>"] = "select_default",
+---     ...,
+---   }
+--- </code>
+---
+---  You can also add other mappings using tables with `type = "command"`.
+---    For example:
+--- <code>
+---   {
+---     ...,
+---     ["jj"] = { "<esc>", type = "command" },
+---     ["kk"] = { "<cmd>echo \"Hello, World!\"<cr>", type = "command" },)
+---     ...,
+---   }
+--- </code>
+---
+--- You can also add additional options for mappings of any type ("action" and "command").
+---   For example:
+--- <code>
+---   {
+---     ...,
+---     ["<C-j>"] = {
+---       action = actions.move_selection_next,
+---       opts = { nowait = true, silent = true }
+---     },
+---     ...,
+---   }
+--- </code>
+---
+--- There are three main places you can configure |telescope.mappings|. These are
+--- ordered from lowest priority to highest priority.
+---
+--- 1. |telescope.defaults.mappings|
+--- 2. In the |telescope.setup()| table, inside of a picker with a given name, use the `mappings` key
+--- <code>
+---   require("telescope").setup {
+---     pickers = {
+---       fd = {
+---         mappings = {
+---           n = {
+---             ["kj"] = "close",
+---           },
+---         },
+---       },
+---     },
+---   }
+--- </code>
+--- 3. The `mappings` key for a particular picker.
+--- <code>
+---   require("telescope.builtin").fd {
+---     mappings = {
+---       i = {
+---         asdf = function()
+---           print "You typed asdf"
+---         end,
+---       },
+---     },
+---   }
+--- </code>
+---@brief ]]
+
 local a = vim.api
 
 local actions = require "telescope.actions"
@@ -95,29 +215,12 @@ local assign_function = function(prompt_bufnr, func)
   return func_id
 end
 
---[[
-Usage:
-
-mappings.apply_keymap(42, <function>, {
-  n = {
-    ["<leader>x"] = "just do this string",
-
-    ["<CR>"] = function(picker, prompt_bufnr)
-      actions.close_prompt()
-
->     local filename = ...
-      vim.cmd(string.format(":e %s", filename))
-    end,
-  },
-
-  i = {
-  }
-})
---]]
 local telescope_map = function(prompt_bufnr, mode, key_bind, key_func, opts)
   if not key_func then
     return
   end
+
+  key_bind = a.nvim_replace_termcodes(key_bind, true, true, true)
 
   opts = opts or {}
   if opts.noremap == nil then
@@ -182,14 +285,52 @@ local extract_keymap_opts = function(key_func)
   return {}
 end
 
-mappings.apply_keymap = function(prompt_bufnr, attach_mappings, buffer_keymap)
-  local applied_mappings = { n = {}, i = {} }
+local termcode_mt = {
+  __index = function(t, k)
+    return rawget(t, a.nvim_replace_termcodes(k, true, true, true))
+  end,
+
+  __newindex = function(t, k, v)
+    rawset(t, a.nvim_replace_termcodes(k, true, true, true), v)
+  end,
+}
+
+local mode_mt = {
+  __index = function(t, k)
+    k = string.lower(k)
+    if rawget(t, k) then
+      return rawget(t, k)
+    end
+
+    local val = setmetatable({}, termcode_mt)
+    rawset(t, k, val)
+    return val
+  end,
+
+  __newindex = function(t, k, v)
+    rawset(t, string.lower(k), v)
+  end,
+}
+
+-- Apply the keymaps for a given set of configurations
+mappings.apply_keymap = function(prompt_bufnr, attach_mappings, ...)
+  local mappings_applied = setmetatable({}, mode_mt)
+
+  -- Set the mappings_config, and make sure that all transformations are applied
+  local mappings_config = setmetatable({}, mode_mt)
+  for mode, mode_map in pairs(vim.tbl_deep_extend("force", mappings.default_mappings or {}, ...)) do
+    for key_bind, val in pairs(mode_map) do
+      mappings_config[mode][key_bind] = val
+    end
+  end
 
   local map = function(mode, key_bind, key_func, opts)
-    mode = string.lower(mode)
-    local key_bind_internal = a.nvim_replace_termcodes(key_bind, true, true, true)
-    applied_mappings[mode][key_bind_internal] = true
+    -- Skip maps that are disabled by the user
+    if mappings_config[mode][key_bind] == false then
+      return
+    end
 
+    mappings_applied[mode][key_bind] = true
     telescope_map(prompt_bufnr, mode, key_bind, key_func, opts)
   end
 
@@ -208,26 +349,10 @@ mappings.apply_keymap = function(prompt_bufnr, attach_mappings, buffer_keymap)
     end
   end
 
-  for mode, mode_map in pairs(buffer_keymap or {}) do
-    mode = string.lower(mode)
-
+  for mode, mode_map in pairs(mappings_config) do
     for key_bind, key_func in pairs(mode_map) do
-      local key_bind_internal = a.nvim_replace_termcodes(key_bind, true, true, true)
-      if not applied_mappings[mode][key_bind_internal] then
-        applied_mappings[mode][key_bind_internal] = true
-        telescope_map(prompt_bufnr, mode, key_bind, key_func, extract_keymap_opts(key_func))
-      end
-    end
-  end
-
-  -- TODO: Probably should not overwrite any keymaps
-  for mode, mode_map in pairs(mappings.default_mappings) do
-    mode = string.lower(mode)
-
-    for key_bind, key_func in pairs(mode_map) do
-      local key_bind_internal = a.nvim_replace_termcodes(key_bind, true, true, true)
-      if not applied_mappings[mode][key_bind_internal] then
-        applied_mappings[mode][key_bind_internal] = true
+      if not mappings_applied[mode][key_bind] then
+        mappings_applied[mode][key_bind] = true
         telescope_map(prompt_bufnr, mode, key_bind, key_func, extract_keymap_opts(key_func))
       end
     end
