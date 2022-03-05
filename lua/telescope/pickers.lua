@@ -38,11 +38,11 @@ local pickers = {}
 ---@field entry_prefix string
 ---@field sorter Sorter
 ---@field highlighter table: TODO: Document highlighter
----@field offset number: How far we've scrolled thus far
+---@field offset number: How far we've scrolled thus far, in rows. So it's a number 0-Max
 ---@field num_visible number: The number of possible visible entries. Not guaranteed to have that many entries
 ---currently.
 
---- Picker is the main UI that shows up to interact w/ your results.
+-- Picker is the main UI that shows up to interact w/ your results.
 -- Takes a filter & a previewer
 local Picker = {}
 Picker.__index = Picker
@@ -139,15 +139,12 @@ function Picker:new(opts)
   obj.selection_caret = get_default(opts.selection_caret, config.values.selection_caret)
   obj.entry_prefix = get_default(opts.entry_prefix, config.values.entry_prefix)
 
-  -- TODO: Should be different, to be the actual prefix text (can just prepend each time)
   obj._prefix_width = math.max(
-    -- While entry prefix could be different than selection caret,
-    -- we want to make sure that the results don't shift while moving up & down.
-    -- I don't like that kind of behavior
     strdisplaywidth(obj.entry_prefix),
-    strdisplaywidth(obj.selection_caret)
+    strdisplaywidth(obj.selection_caret),
+    strdisplaywidth(obj.multi_icon) + 1
   )
-  obj._prefix_string = obj.entry_prefix .. string.rep(" ", strdisplaywidth(obj.entry_prefix) - obj._prefix_width)
+  obj._prefix_string = obj.entry_prefix .. string.rep(" ", obj._prefix_width - strdisplaywidth(obj.entry_prefix))
 
   obj.get_window_options = opts.get_window_options or p_window.get_window_options
 
@@ -219,14 +216,6 @@ function Picker:get_reset_row()
   end
 end
 
---- Check if the picker is no longer in use
----@return boolean|nil: `true` if picker is closed, `nil` otherwise
-function Picker:is_done()
-  if not self.manager then
-    return true
-  end
-end
-
 --- Check if the given row number can be selected
 ---@param row number: the number of the chosen row in the results buffer
 ---@return boolean
@@ -237,6 +226,14 @@ function Picker:can_select_row(row)
     return row <= self.manager:num_results() and row < self.num_visible
   else
     return row >= 0 and row <= self.num_visible and row >= self.num_visible - self.manager:num_results()
+  end
+end
+
+--- Check if the picker is no longer in use
+---@return boolean|nil: `true` if picker is closed, `nil` otherwise
+function Picker:is_done()
+  if not self.manager then
+    return true
   end
 end
 
@@ -334,13 +331,7 @@ function Picker:find()
   self.prompt_border = prompt_opts and prompt_opts.border
 
   -- Prompt prefix
-  local prompt_prefix = self.prompt_prefix
-  if prompt_prefix ~= "" then
-    a.nvim_buf_set_option(prompt_bufnr, "buftype", "prompt")
-    vim.fn.prompt_setprompt(prompt_bufnr, prompt_prefix)
-  end
-  self.prompt_prefix = prompt_prefix
-  self:_reset_prefix_color()
+  self:set_promptprefix(self.prompt_prefix)
 
   -- TODO: Probably should reset self.offset and what not when you type new keys?... hadn't thought about that before
   self.offset = 0
@@ -653,10 +644,26 @@ function Picker:delete_selection(delete_cb)
   end)
 end
 
+function Picker:set_promptprefix(str)
+  self.prompt_prefix = str
+  if self.prompt_prefix ~= "" then
+    a.nvim_buf_set_option(self.prompt_bufnr, "buftype", "prompt")
+    vim.fn.prompt_setprompt(self.prompt_bufnr, self.prompt_prefix)
+  else
+    a.nvim_buf_set_option(self.prompt_bufnr, "buftype", "")
+    -- TODO: Decide this
+    -- vim.api.nvim_buf_set_lines(self.prompt_bufnr, 0, -1, false, { self.default_text })
+  end
+end
+
 function Picker:set_prompt(str)
-  -- TODO(conni2461): As soon as prompt_buffers are fix use this:
-  -- vim.api.nvim_buf_set_lines(self.prompt_bufnr, 0, 1, false, { str })
+  vim.api.nvim_buf_set_lines(self.prompt_bufnr, 0, -1, false, { "" })
   vim.api.nvim_feedkeys(str, "n", false)
+  self:_reset_prefix_color()
+
+  -- TODO(conni2461): As soon as prompt_buffers are fix use this:
+  -- vim.api.nvim_buf_set_lines(self.prompt_bufnr, 0, -1, false, { "" })
+  -- vim.api.nvim_buf_set_text(self.prompt_bufnr, 0, 0, 0, 0, { str })
 end
 
 --- Closes the windows for the prompt, results and preview
@@ -696,6 +703,14 @@ end
 function Picker:get_selection_row()
   -- TODO(fps): This seems WRONG -- what if it should be the first row? very confused
   return self._selection_row or self.num_visible
+end
+
+function Picker:shift_offset(change)
+  self.offset = self.offset + change
+  self.offset = math.min(self.offset, self.manager:num_results() - self.num_visible + 1)
+  self.offset = math.max(self.offset, 0)
+
+  self:_redraw { force = true }
 end
 
 --- Move the current selection by `change` steps
@@ -815,7 +830,7 @@ function Picker:_reset_prefix_color(hl_group)
       self._current_prefix_hl_group or "TelescopePromptPrefix",
       0,
       0,
-      self._prefix_width
+      strdisplaywidth(self.prompt_prefix)
     )
   end
 end
@@ -885,7 +900,7 @@ end
 ---@param row number
 function Picker:set_selection(row)
   -- print("Setting selection to:", debug.traceback(row))
-  print("Setting selection to:", self.offset, row)
+  -- print("Setting selection to:", self.offset, row, "//", self.num_visible, self.manager:num_results())
 
   if not self.manager then
     return
