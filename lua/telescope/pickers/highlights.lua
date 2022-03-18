@@ -21,9 +21,9 @@ function Highlighter:new(picker)
   }, self)
 end
 
-local SELECTION_HIGHLIGHTS_PRIORITY = 130
 local DISPLAY_HIGHLIGHTS_PRIORITY = 110
 local SORTER_HIGHLIGHTS_PRIORITY = 120
+local SELECTION_HIGHLIGHTS_PRIORITY = 130
 
 function Highlighter:highlight(row, opts)
   assert(row, "Must pass a row")
@@ -72,7 +72,7 @@ function Highlighter:hi_display(row, display_highlights)
       end_col = self.offset + hl_block[1][2],
       hl_group = hl_block[2],
       priority = DISPLAY_HIGHLIGHTS_PRIORITY,
-      strict = true,
+      strict = false,
     })
   end
 end

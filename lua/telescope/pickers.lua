@@ -721,20 +721,13 @@ end
 --- Move the current selection by `change` steps
 ---@param change number
 function Picker:move_selection(change)
-  -- local original = self:get_selection_row()
-  --
-  -- self:set_selection(self:get_selection_row() + change)
-  -- if original then
-  --   self.highlighter:highlight(original, {})
-  -- end
-
-  -- local original = self:get_selection_row()
-
   -- TODO: This isn't quite right. I can get stuck :'(
   -- I think we just want to do it with the change as positive or negative
   -- and then also just delete a bunch of this other random stuff.
   --
   -- it's so confusing :'(
+
+  -- row = self.scroller(self.num_visible, self.manager:num_results(), row)
 
   local new_row = self:get_selection_row() + change
   if new_row >= self.num_visible then
@@ -742,7 +735,6 @@ function Picker:move_selection(change)
     self:set_selection(self.num_visible - 1)
   elseif new_row < 0 then
     if self.offset == 0 and self.scroll_strategy == "cycle" then
-      -- error "OH NO NO"
       -- self.offset = math.min(self.offset + new_row - self.num_visible + 1, self.num_visible - 1)
       -- self.offset = self.manager:num_results() - self.num_visible
       -- self:set_selection()
@@ -751,8 +743,15 @@ function Picker:move_selection(change)
       --   num_visible = self.num_visible,
       -- })
 
-      self.offset = 0
-      self:set_selection(self.manager:num_results() - 1)
+      -- print(
+      --   self.manager:num_results(),
+      --   self.num_visible,
+      --   math.min(self.manager:num_results() - 1, self.num_visible - 1)
+      -- )
+      self.offset = math.max(0, self.manager:num_results() - self.num_visible + 1)
+      self:_update_results {}
+
+      self:set_selection(math.min(self.num_visible - 1, self.manager:num_results() - 1))
     else
       self.offset = math.max(self.offset - 1, 0)
       self:set_selection(0)
@@ -760,11 +759,8 @@ function Picker:move_selection(change)
   else
     self:set_selection(new_row)
   end
-  -- self:_redraw(true)
 
-  -- if original then
-  --   self.highlighter:highlight(original, {})
-  -- end
+  self:_redraw { force = true }
 end
 
 function Picker:_resolve_entry_display(entry)
@@ -825,6 +821,7 @@ function Picker:toggle_selection(row)
   if entry == nil then
     return
   end
+
   self._multi:toggle(entry)
   self:_update_status()
   self.highlighter:highlight(row, {
@@ -925,8 +922,9 @@ function Picker:set_selection(row)
     return
   end
 
+  local old_row = row
   row = self.scroller(self.num_visible, self.manager:num_results(), row)
-  print("Setting row to be:", row)
+  print("Setting row to be:", old_row, "->", row)
 
   if not self:can_select_row(row) then
     -- If the current selected row exceeds number of currently displayed
@@ -975,8 +973,6 @@ function Picker:set_selection(row)
   --     self.highlighter:hi_multiselect(old_row, self:is_multi_selected(old_entry))
   --   end
   -- end
-
-  self:_redraw { force = true }
 
   self._selection_entry = entry
   self._selection_row = row
@@ -1104,7 +1100,6 @@ Goals:
 Picker._redraw = vim.schedule_wrap(function(self, opts)
   opts = opts or {}
 
-  opts.force = false
   if not opts.force and not self.manager then
     return
   end
@@ -1115,37 +1110,8 @@ Picker._redraw = vim.schedule_wrap(function(self, opts)
   end
 
   self.manager.dirty = false
-  self.highlighter:clear()
-
-  -- Dimensions
-  local height = vim.api.nvim_win_get_height(self.results_win)
-  local window = self.manager:window(1 + self.offset, self.num_visible + self.offset)
-
-  -- Get the contents to display and associated highlights
-  local displayed, highlights = {}, {}
-  for window_idx, entry in ipairs(window) do
-    local row = self:get_row(window_idx)
-    displayed[row], highlights[row] = self:_resolve_entry_display(entry)
-  end
-
-  -- Push display contents into lines buffer
-  local lines = {}
-  for idx = 0, height do
-    lines[idx + 1] = (displayed[idx] and self._prefix_string .. displayed[idx]) or ""
-  end
-
-  -- Display contents
-  vim.api.nvim_buf_set_lines(self.results_bufnr, 0, -1, false, lines)
-
-  local prompt = self:_get_prompt()
-  for row, display_highlights in pairs(highlights) do
-    self.highlighter:highlight(row, {
-      prompt = prompt,
-      entry = window[row],
-      display = displayed[row],
-      display_highlights = display_highlights,
-    })
-  end
+  local displayed, highlights = self:_update_results()
+  self:_update_highlights(displayed, highlights)
 
   if opts.do_selection then
     -- self:set_selection
@@ -1156,6 +1122,60 @@ Picker._redraw = vim.schedule_wrap(function(self, opts)
   -- print("Setting win cursor", self:get_selection_row() + 1)
   -- vim.api.nvim_win_set_cursor(self.results_win, { self:get_selection_row() + 1, 0 })
 end)
+
+local get_displayed_and_highlights = function(self, window)
+  -- Get the contents to display and associated highlights
+  local displayed, highlights = {}, {}
+  for window_idx, entry in ipairs(window) do
+    local row = self:get_row(window_idx)
+    displayed[row], highlights[row] = self:_resolve_entry_display(entry)
+  end
+
+  return displayed, highlights
+end
+
+function Picker:_update_highlights(displayed, highlights)
+  local window = self.manager:window(1 + self.offset, self.num_visible + self.offset)
+
+  -- Only look up displays and highlights if we haven't done that already
+  if not displayed or not highlights then
+    displayed, highlights = get_displayed_and_highlights(self, window)
+  end
+
+  local prompt = self:_get_prompt()
+
+  self.highlighter:clear()
+  for row, display_highlights in pairs(highlights) do
+    self.highlighter:highlight(row, {
+      prompt = prompt,
+      entry = window[self:get_index(row)],
+      display = displayed[row],
+      display_highlights = display_highlights,
+    })
+  end
+end
+
+function Picker:_update_results(opts)
+  opts = opts or {}
+
+  -- Dimensions
+  local height = vim.api.nvim_win_get_height(self.results_win)
+  local window = self.manager:window(1 + self.offset, self.num_visible + self.offset)
+
+  -- Get the contents to display and associated highlights
+  local displayed, highlights = get_displayed_and_highlights(self, window)
+
+  -- Push display contents into lines buffer
+  local lines = {}
+  for idx = 0, height do
+    lines[idx + 1] = (displayed[idx] and self._prefix_string .. displayed[idx]) or ""
+  end
+
+  -- Display contents
+  vim.api.nvim_buf_set_lines(self.results_bufnr, 0, -1, false, lines)
+
+  return displayed, highlights
+end
 
 --- Returns a function that sets virtual text for the count indicator
 --- e.g. "10/50" as "filtered"/"processed"

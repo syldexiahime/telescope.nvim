@@ -101,17 +101,23 @@ runner.create_on_complete = function(input, test_cases)
   local actions = {}
   for i = 1, #input do
     local char = input:sub(i, i)
-    table.insert(actions, function()
-      runner.log("Inserting char: " .. char)
-      runner.nvim_feed(char, "")
-    end)
+    table.insert(actions, {
+      cb = function()
+        runner.log("Inserting char: " .. char)
+        runner.nvim_feed(char, "")
+      end,
+      char = char,
+    })
   end
 
   return function()
-    local action = table.remove(actions, 1)
-    if action then
-      action()
-    end
+    local action = {}
+    repeat
+      action = table.remove(actions, 1)
+      if action then
+        action.cb()
+      end
+    until not action or string.match(action.char, "%g")
 
     if #actions > 0 then
       return
