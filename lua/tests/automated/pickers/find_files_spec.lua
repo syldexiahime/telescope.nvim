@@ -1,6 +1,4 @@
-require("plenary.reload").reload_module "telescope"
-
-local tester = require "telescope.pickers._test"
+local tester = require "telescope.testharness"
 
 local disp = function(val)
   return vim.inspect(val, { newline = " ", indent = "" })
@@ -9,10 +7,6 @@ end
 describe("builtin.find_files", function()
   it("should find the readme", function()
     tester.run_file "find_files__readme"
-  end)
-
-  it("should be able to move selections", function()
-    tester.run_file "find_files__with_ctrl_n"
   end)
 
   for _, configuration in

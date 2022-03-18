@@ -11,9 +11,6 @@ local get_results_from_contents = function(content)
     { rpc = true }
   )
 
-  assert.are.same("Hello world!", vim.fn.rpcrequest(nvim, "nvim_eval", '"Hello " . "world!"'))
-  assert.are.same("Hello world!", vim.fn.rpcrequest(nvim, "nvim_exec_lua", 'return "Hello " .. "world!"', {}))
-
   local result = vim.fn.rpcrequest(nvim, "nvim_exec_lua", content, {})
   assert.are.same(true, result[1], vim.inspect(result))
 
@@ -43,16 +40,16 @@ local get_results_from_contents = function(content)
   return result_table, state
 end
 
-local asserters = {
-  _default = assert.are.same,
-
-  are = assert.are.same,
-  are_not = assert.are_not.same,
-}
-
 local check_results = function(results, state)
+  assert(state, "Must pass state")
+
   for _, v in ipairs(results) do
-    local assertion = asserters[v._type or "_default"]
+    local assertion
+    if not v._type or v._type == "are" or v._type == "_default" then
+      assertion = assert.are.same
+    else
+      assertion = assert.are_not.same
+    end
 
     -- TODO: I think it would be nice to be able to see the state,
     -- but it clutters up the test output so much here.
@@ -77,50 +74,43 @@ tester.run_string = function(contents)
 
       return {ok, msg or runner.state}
     end)()
-    ]]
+  ]]
 
   check_results(get_results_from_contents(contents))
 end
 
 tester.run_file = function(filename)
   local file = "./lua/tests/pickers/" .. filename .. ".lua"
+  local path = Path:new(file)
 
-  if not Path:new(file):exists() then
+  if not path:exists() then
     assert.are.same("<An existing file>", file)
   end
 
-  local result_table = get_results_from_contents(file)
-  check_results(result_table)
+  local contents = string.format(
+    [[
+    return (function()
+      local runner = require('telescope.testharness.runner')
+      local helper = require('telescope.testharness.helpers')
+
+      helper.make_globals()
+      local ok, msg = pcall(function()
+        runner.log("Loading Test")
+        return loadfile("%s")()
+      end)
+
+      return {ok, msg or runner.state}
+    end)()
+  ]],
+    path:absolute()
+  )
+
+  check_results(get_results_from_contents(contents))
 end
 
 tester.not_ = function(val)
   val._type = "are_not"
   return val
 end
-
--- tester._execute = function(filename)
---   vim.cmd(string.format("luafile %s", filename))
---
---   local f = loadfile(filename)
---   if not f then
---     writer {
---       location = "Error: " .. filename,
---       case = filename,
---       expected = "To succeed",
---       actual = nil,
---     }
---   end
---
---   local ok, msg = pcall(f)
---   if not ok then
---     writer {
---       location = "Error: " .. msg,
---       case = msg,
---       expected = msg,
---     }
---   end
---
---   end_test_cases()
--- end
 
 return tester
