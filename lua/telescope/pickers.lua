@@ -172,7 +172,6 @@ function Picker:new(opts)
     obj.hidden_previewer = nil
   end
 
-  obj.sorting_strategy = "ascending"
   obj.scroller = require("telescope.pickers.scroller").new(obj.scroll_strategy, obj.sorting_strategy)
   obj.highlighter = require("telescope.pickers.highlights").new(obj)
 
@@ -742,8 +741,22 @@ function Picker:move_selection(change)
     self.offset = math.min(self.offset + new_row - self.num_visible + 1, self.num_visible - 1)
     self:set_selection(self.num_visible - 1)
   elseif new_row < 0 then
-    self.offset = math.max(self.offset - 1, 0)
-    self:set_selection(0)
+    if self.offset == 0 and self.scroll_strategy == "cycle" then
+      -- error "OH NO NO"
+      -- self.offset = math.min(self.offset + new_row - self.num_visible + 1, self.num_visible - 1)
+      -- self.offset = self.manager:num_results() - self.num_visible
+      -- self:set_selection()
+      -- error(vim.inspect {
+      --   num_results = self.manager:num_results(),
+      --   num_visible = self.num_visible,
+      -- })
+
+      self.offset = 0
+      self:set_selection(self.manager:num_results() - 1)
+    else
+      self.offset = math.max(self.offset - 1, 0)
+      self:set_selection(0)
+    end
   else
     self:set_selection(new_row)
   end
