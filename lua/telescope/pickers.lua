@@ -92,7 +92,7 @@ function Picker:new(opts)
 
     _find_id = 0,
     _completion_callbacks = type(opts._completion_callbacks) == "table" and opts._completion_callbacks or {},
-    manager = (type(opts.manager) == "table" and getmetatable(opts.manager) == EntryManager) and opts.manager,
+    -- manager = (type(opts.manager) == "table" and getmetatable(opts.manager) == EntryManager) and opts.manager,
     _multi = (type(opts._multi) == "table" and getmetatable(opts._multi) == getmetatable(MultiSelect:new()))
         and opts._multi
       or MultiSelect:new(),
@@ -127,6 +127,8 @@ function Picker:new(opts)
 
     cache_picker = config.resolve_table_opts(opts.cache_picker, vim.deepcopy(config.values.cache_picker)),
   }, self)
+
+  obj._on_error = opts._on_error
 
   -- Separate idea, just for prompt only. Doesn't affect any of the other items.
   obj.prompt_prefix = get_default(opts.prompt_prefix, config.values.prompt_prefix)
@@ -170,6 +172,7 @@ function Picker:new(opts)
     obj.hidden_previewer = nil
   end
 
+  obj.sorting_strategy = "ascending"
   obj.scroller = require("telescope.pickers.scroller").new(obj.scroll_strategy, obj.sorting_strategy)
   obj.highlighter = require("telescope.pickers.highlights").new(obj)
 
@@ -344,7 +347,7 @@ function Picker:find()
   local find_id = self:_next_find_id()
   self.refresher = vim.loop.new_timer()
   self.refresher:start(0, 100, function()
-    self:_redraw()
+    self:_redraw { do_selection = true, force = true }
   end)
 
   local rx
@@ -412,6 +415,7 @@ function Picker:find()
 
   async.void(function()
     self.sorter:_init()
+    self.manager = EntryManager:new(self.num_visible)
 
     -- Do filetype last, so that users can register at the last second.
     pcall(a.nvim_buf_set_option, prompt_bufnr, "filetype", "TelescopePrompt")
@@ -435,7 +439,7 @@ function Picker:find()
       error("Invalid setting for initial_mode: " .. self.initial_mode)
     end
 
-    await_schedule()
+    -- await_schedule()
 
     while true do
       -- Wait for the next input
@@ -459,7 +463,9 @@ function Picker:find()
         local process_complete = self:get_result_completor(self.results_bufnr, find_id, prompt, status_updater)
 
         local ok, msg = pcall(function()
-          self.finder(prompt, process_result, process_complete)
+          self.finder(prompt, process_result, function(...)
+            return process_complete(...)
+          end)
         end)
 
         if not ok then
@@ -907,6 +913,7 @@ function Picker:set_selection(row)
   end
 
   row = self.scroller(self.num_visible, self.manager:num_results(), row)
+  print("Setting row to be:", row)
 
   if not self:can_select_row(row) then
     -- If the current selected row exceeds number of currently displayed
@@ -925,7 +932,7 @@ function Picker:set_selection(row)
   end
 
   if row > a.nvim_buf_line_count(results_bufnr) then
-    log.debug(
+    log.info(
       string.format("Should not be possible to get row this large %s %s", row, a.nvim_buf_line_count(results_bufnr))
     )
 
@@ -1047,8 +1054,12 @@ function Picker:clear_completion_callbacks()
 end
 
 function Picker:_on_complete()
+  -- TODO: Should alert user that stuff broke.
   for _, v in ipairs(self._completion_callbacks) do
-    pcall(v, self)
+    local ok, msg = pcall(v, self)
+    if not ok then
+      self:_on_error(msg)
+    end
   end
 end
 
@@ -1079,6 +1090,8 @@ Goals:
 --]]
 Picker._redraw = vim.schedule_wrap(function(self, opts)
   opts = opts or {}
+
+  opts.force = false
   if not opts.force and not self.manager then
     return
   end
@@ -1119,6 +1132,11 @@ Picker._redraw = vim.schedule_wrap(function(self, opts)
       display = displayed[row],
       display_highlights = display_highlights,
     })
+  end
+
+  if opts.do_selection then
+    -- self:set_selection
+    -- self:_do_selection(prompt)
   end
 
   -- vim.api.nvim_win_set_cursor
