@@ -729,35 +729,57 @@ function Picker:move_selection(change)
 
   -- row = self.scroller(self.num_visible, self.manager:num_results(), row)
 
-  local new_row = self:get_selection_row() + change
-  if new_row >= self.num_visible then
-    self.offset = math.min(self.offset + new_row - self.num_visible + 1, self.num_visible - 1)
-    self:set_selection(self.num_visible - 1)
-  elseif new_row < 0 then
-    if self.offset == 0 and self.scroll_strategy == "cycle" then
-      -- self.offset = math.min(self.offset + new_row - self.num_visible + 1, self.num_visible - 1)
-      -- self.offset = self.manager:num_results() - self.num_visible
-      -- self:set_selection()
-      -- error(vim.inspect {
-      --   num_results = self.manager:num_results(),
-      --   num_visible = self.num_visible,
-      -- })
+  -- todo: can we do this based on index??
 
-      -- print(
-      --   self.manager:num_results(),
-      --   self.num_visible,
-      --   math.min(self.manager:num_results() - 1, self.num_visible - 1)
-      -- )
-      self.offset = math.max(0, self.manager:num_results() - self.num_visible + 1)
-      self:_update_results {}
+  if self.sorting_strategy == "ascending" then
+    local new_row = self:get_selection_row() + change
+    if new_row >= self.num_visible then
+      if self.offset == 0 and self.scroll_strategy == "cycle" then
+        error "ya"
+      end
 
-      self:set_selection(math.min(self.num_visible - 1, self.manager:num_results() - 1))
+      self.offset = math.min(self.offset + new_row - self.num_visible + 1, self.num_visible - 1)
+      self:set_selection(self.num_visible - 1)
+    elseif new_row < 0 then
+      if self.offset == 0 and self.scroll_strategy == "cycle" then
+        -- self.offset = math.min(self.offset + new_row - self.num_visible + 1, self.num_visible - 1)
+        -- self.offset = self.manager:num_results() - self.num_visible
+        -- self:set_selection()
+        -- error(vim.inspect {
+        --   num_results = self.manager:num_results(),
+        --   num_visible = self.num_visible,
+        -- })
+
+        -- print(
+        --   self.manager:num_results(),
+        --   self.num_visible,
+        --   math.min(self.manager:num_results() - 1, self.num_visible - 1)
+        -- )
+        self.offset = math.max(0, self.manager:num_results() - self.num_visible)
+        self:_update_results {}
+
+        self:set_selection(math.min(self.num_visible - 1, self.manager:num_results() - 1))
+      else
+        self.offset = math.max(self.offset - 1, 0)
+        self:set_selection(0)
+      end
     else
-      self.offset = math.max(self.offset - 1, 0)
-      self:set_selection(0)
+      self:set_selection(new_row)
     end
   else
-    self:set_selection(new_row)
+    -- print(self.offset, self.num_visible, self.manager:num_results())
+
+    local new_row = self:get_selection_row() + change
+    if new_row >= self.num_visible then
+      self.offset = math.max(0, self.manager:num_results() - self.num_visible)
+      self:_update_results {}
+
+      self:set_selection(math.max(0, self.num_visible - self.manager:num_results()))
+    elseif new_row < 0 then
+      error "oh no"
+    else
+      self:set_selection(new_row)
+    end
   end
 
   self:_redraw { force = true }
@@ -924,7 +946,7 @@ function Picker:set_selection(row)
 
   local old_row = row
   row = self.scroller(self.num_visible, self.manager:num_results(), row)
-  print("Setting row to be:", old_row, "->", row)
+  -- print("Setting row to be:", old_row, "->", row)
 
   if not self:can_select_row(row) then
     -- If the current selected row exceeds number of currently displayed
