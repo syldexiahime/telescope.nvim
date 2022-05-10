@@ -303,6 +303,42 @@ actions.select_tab = {
   end,
 }
 
+--- Perform 'drop' action on selection, usually something like<br>
+---`:drop <selection>`
+---
+--- i.e. if the selection is already open in another window change to that,
+--- otherwise open the selection in the current buffer
+---@param prompt_bufnr number: The prompt bufnr
+actions.select_drop = {
+  pre = function(prompt_bufnr)
+    action_state.get_current_history():append(
+      action_state.get_current_line(),
+      action_state.get_current_picker(prompt_bufnr)
+    )
+  end,
+  action = function(prompt_bufnr)
+    return action_set.select(prompt_bufnr, "drop")
+  end,
+}
+
+--- Perform 'tabdrop' action on selection, usually something like<br>
+---`:tab drop <selection>`
+---
+--- i.e. if the selection is already open in another window change to that,
+--- otherwise open the selection in a new tab
+---@param prompt_bufnr number: The prompt bufnr
+actions.select_tabdrop = {
+  pre = function(prompt_bufnr)
+    action_state.get_current_history():append(
+      action_state.get_current_line(),
+      action_state.get_current_picker(prompt_bufnr)
+    )
+  end,
+  action = function(prompt_bufnr)
+    return action_set.select(prompt_bufnr, "tabdrop")
+  end,
+}
+
 -- TODO: consider adding float!
 -- https://github.com/nvim-telescope/telescope.nvim/issues/365
 

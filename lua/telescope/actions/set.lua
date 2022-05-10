@@ -45,7 +45,7 @@ end
 --- By default maps to editing a file.
 ---@param prompt_bufnr number: The prompt bufnr
 ---@param type string: The type of selection to make
---          Valid types include: "default", "horizontal", "vertical", "tabedit"
+--          Valid types include: "default", "horizontal", "vertical", "tabedit", "drop", "tabdrop"
 action_set.select = function(prompt_bufnr, type)
   return action_set.edit(prompt_bufnr, action_state.select_key_to_edit_key(type))
 end
@@ -85,7 +85,7 @@ end
 --- Edit a file based on the current selection.
 ---@param prompt_bufnr number: The prompt bufnr
 ---@param command string: The command to use to open the file.
---      Valid commands include: "edit", "new", "vedit", "tabedit"
+--      Valid commands include: "edit", "new", "vedit", "tabedit", "drop", "tab drop"
 action_set.edit = function(prompt_bufnr, command)
   local entry = action_state.get_selected_entry()
 
